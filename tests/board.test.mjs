@@ -1,0 +1,17 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { boardCoordinates, boardSpaces } from '../lib/monopoly-board.mjs';
+test('the 40 spaces form a unique perimeter with the four standard corners', () => {
+  const spaces = boardSpaces();
+  assert.equal(spaces.length, 40);
+  assert.equal(new Set(spaces.map(s=>`${s.row}:${s.column}`)).size, 40);
+  assert.ok(spaces.every(s=>s.row===1 || s.row===11 || s.column===1 || s.column===11));
+  assert.deepEqual([0,10,20,30].map(boardCoordinates), [{row:11,column:11},{row:11,column:1},{row:1,column:1},{row:1,column:11}]);
+});
+test('catalog positions override layout labels and preserve collected counts', () => {
+  const spaces = boardSpaces([{boardLocation:39,name:'Edition Boardwalk',number:'999',color:'blue',ticket_count:'2',prize:'Catalog prize'}]);
+  assert.equal(spaces[39].name,'Edition Boardwalk');
+  assert.equal(spaces[39].count,2);
+  assert.equal(spaces[39].number,'999');
+  assert.equal(spaces[38].count,0);
+});
