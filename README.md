@@ -8,11 +8,19 @@ Requires Node.js 22.9+ and a PostgreSQL database (Neon or local).
 
 1. Run `npm install`.
 2. Copy `.env.example` to `.env` and set `DATABASE_URL` to your Neon connection string. Preserve `sslmode=require`. Never put it in a `NEXT_PUBLIC_` variable.
-3. Run `npm run db:migrate`. The runner tracks checksums in `tbl_schema_migration`, applies new SQL files in order, and safely records databases where `001_initial.sql` was applied before tracking existed. Repeated runs skip applied migrations.
+3. Run `npm run db:migrate`, then `npm run session:key` to initialize encrypted login cookies. The runner tracks checksums in `tbl_schema_migration`, applies new SQL files in order, and safely records databases where `001_initial.sql` was applied before tracking existed. Repeated runs skip applied migrations; the key command preserves an existing key.
 4. Configure a Twilio Verify service with six-digit SMS codes. Add `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, and `TWILIO_VERIFY_SERVICE_SID` to `.env.local` (see `.env.example`) and your web host. Keep them server-only. Missing credentials disable SMS login; there is no development code or password fallback.
 5. Create an authorized account: `npm run user:invite -- scott you@example.com First Last +13125550123`. Use the person's actual international E.164 phone number. The username is case-insensitive, 3–40 letters/numbers/dots/underscores/hyphens. The command creates the account but does not send a message.
 6. Run `npm run dev` and open http://localhost:3000.
 7. Enter the username, then the verification code sent to the recorded phone. Create a board and add other invited users to it by email. Enter sticker names, printed numbers, and codes, with an optional JPEG/PNG/WebP scan up to 5 MB.
+
+### Remembered login and logout
+
+Run `npm run session:key` once to generate `SESSION_COOKIE_KEY` in gitignored `.env.local`. The key is 32 random bytes encoded as base64url and is never printed by the setup script. Keep it stable and configure the same server-only value on every instance of your web host. Rotating it requires users to sign in again.
+
+After phone verification, the app encrypts the session identifier using authenticated AES-256-GCM (JWE). The cookie is HttpOnly, SameSite=Lax, Secure in production, and persists for seven days across browser restarts. Its encrypted expiry and database expiry both apply. Visiting the app, `/login`, or the code screen with a valid cookie bypasses sign-in and phone verification. The one-week lifetime is fixed from login; ordinary visits do not extend it.
+
+The main-page **Logout** button clears the browser cookie and deletes that session from the database. A saved copy of the cookie cannot be reused afterward. Revocation or a recorded phone-number change also blocks remembered access. Unencrypted cookies from the previous app version are no longer accepted. No database migration is needed for cookie encryption.
 
 ### Linked Neon project
 

@@ -8,6 +8,7 @@ import { requireUser, sessionCookie, tokenHash } from '../lib/auth';
 import { createSmsVerifier, smsConfiguration, SmsUnavailableError } from '../lib/sms.mjs';
 import { requestPhoneLogin, verifyPhoneLogin, challengeCookie, LoginChallengeError } from '../lib/phone-login.mjs';
 import { detectScanType, MAX_SCAN_BYTES } from '../lib/scan.mjs';
+import { encryptSessionCookie, decryptSessionCookie, sessionEncryptionKey, SESSION_LIFETIME_SECONDS } from '../lib/session-cookie.mjs';
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 const uuid = z.uuid();
@@ -30,20 +31,26 @@ export async function verifyLoginCode(form: FormData) {
   const jar = await cookies();
   let token: string;
   try {
+    // Check configuration before consuming the one-time verification challenge.
+    sessionEncryptionKey();
     const verifier = createSmsVerifier(smsConfiguration());
-    token = await verifyPhoneLogin(db, jar.get(challengeCookie)?.value || '', text(form, 'code'), verifier, jar.get(sessionCookie)?.value);
+    const priorSession = await decryptSessionCookie(jar.get(sessionCookie)?.value);
+    token = await verifyPhoneLogin(db, jar.get(challengeCookie)?.value || '', text(form, 'code'), verifier, priorSession ?? undefined);
   } catch (error) {
     if (error instanceof SmsUnavailableError || error instanceof LoginChallengeError) fail(error.message, '/login/verify');
     throw error;
   }
   jar.delete(challengeCookie);
-  jar.set(sessionCookie, token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 7 * 86400 });
+  jar.set(sessionCookie, await encryptSessionCookie(token), {
+    httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/',
+    maxAge: SESSION_LIFETIME_SECONDS, expires: new Date(Date.now() + SESSION_LIFETIME_SECONDS * 1000)
+  });
   redirect('/');
 }
 
 export async function logout() {
   const jar = await cookies();
-  const token = jar.get(sessionCookie)?.value;
+  const token = await decryptSessionCookie(jar.get(sessionCookie)?.value);
   if (token) await db.query('DELETE FROM tbl_session WHERE token_hash = $1', [tokenHash(token)]);
   const challenge = jar.get(challengeCookie)?.value;
   if (challenge) await db.query('DELETE FROM tbl_login_challenge WHERE token_hash=$1', [tokenHash(challenge)]);

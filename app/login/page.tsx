@@ -1,6 +1,9 @@
 import { requestLoginCode } from '../actions';
 import { Header, Message } from '../components';
+import { currentUser } from '../../lib/auth';
+import { redirect } from 'next/navigation';
 export default async function Login({ searchParams }: { searchParams: Promise<{ error?: string; notice?: string }> }) {
+  if (await currentUser()) redirect('/');
   return <><Header/><main className="simple-login"><section className="panel">
     <h1>Kallen Monopoly Pooling</h1><h2>Sign in</h2>
     <p>Enter your username. We’ll send a verification code to the phone number on your account.</p>

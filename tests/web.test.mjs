@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import pg from 'pg';
 import { requestPhoneLogin, verifyPhoneLogin } from '../lib/phone-login.mjs';
+import { encryptSessionCookie, decryptSessionCookie } from '../lib/session-cookie.mjs';
 
 const url = process.env.INTEGRATION_BASE_URL;
 const connectionString = process.env.INTEGRATION_DATABASE_URL;
@@ -37,7 +38,7 @@ test('private boards, sticker uploads, board rendering, and phone-bound sessions
     const verifier = { send: async () => sid, check: async (id,code) => id===sid && code==='654321' };
     const challenge = await requestPhoneLogin(db,user.username,verifier);
     const token = await verifyPhoneLogin(db,challenge,'654321',verifier);
-    return `monopoly_session=${token}`;
+    return `monopoly_session=${await encryptSessionCookie(token)}`;
   }
   try {
     for (const firstName of ['Owner', 'Member', 'Outsider']) {
@@ -55,9 +56,14 @@ test('private boards, sticker uploads, board rendering, and phone-bound sessions
     assert.ok(!loginPage.includes('name="password"'));
     assert.equal((await request('/login/verify')).headers.get('location'),'/login');
     const ownerCookie = await signIn(owner);
+    assert.equal((await request('/login',ownerCookie)).headers.get('location'),'/');
+    assert.equal((await request('/login/verify',ownerCookie)).headers.get('location'),'/');
+    const rawToken=await decryptSessionCookie(ownerCookie.split('=')[1]);
+    assert.equal((await request('/',`monopoly_session=${rawToken}`)).headers.get('location'),'/login');
     const homepage = await html('/',ownerCookie);
     assert.match(homepage, /Kallen Monopoly Pooling/);
     assert.match(homepage, /monopoly-board/);
+    assert.match(homepage, /name="logout"/);
     assert.equal((homepage.match(/class="monopoly-space /g)||[]).length,40);
     const outsiderCookie = await signIn(outsider);
     const created = await submit(await html('/', ownerCookie), 'edition', '/', { name: 'Integration board', edition }, ownerCookie);
@@ -112,6 +118,12 @@ test('private boards, sticker uploads, board rendering, and phone-bound sessions
     assert.match(account,/Verification phone/);
     await db.query('UPDATE tbl_user SET phone_number=$1 WHERE "ID"=$2',['+15005550007',member.ID]);
     assert.equal((await request(scanPath, memberCookie)).status, 401);
+    // Logout clears the browser cookie and revokes the copied encrypted cookie.
+    const outsiderHome=await html('/',outsiderCookie);
+    const loggedOut=await submit(outsiderHome,'logout','/',{},outsiderCookie);
+    assert.equal(loggedOut.headers.get('location'),'/login');
+    assert.ok(loggedOut.headers.get('set-cookie').includes('monopoly_session='));
+    assert.equal((await request('/',outsiderCookie)).headers.get('location'),'/login');
   } finally {
     try {
       await db.query('DELETE FROM "tbl_gameBoard" WHERE game_edition=$1', [edition]);

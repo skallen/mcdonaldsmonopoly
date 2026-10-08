@@ -4,7 +4,9 @@ import { redirect } from 'next/navigation';
 import { verifyLoginCode } from '../../actions';
 import { Header, Message } from '../../components';
 import { challengeCookie } from '../../../lib/phone-login.mjs';
+import { currentUser } from '../../../lib/auth';
 export default async function Verify({ searchParams }: { searchParams: Promise<{error?: string}> }) {
+  if (await currentUser()) redirect('/');
   if (!(await cookies()).get(challengeCookie)?.value) redirect('/login');
   return <><Header/><main className="simple-login"><section className="panel">
     <h1>Kallen Monopoly Pooling</h1><h2>Check your phone</h2>
